@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -13,8 +14,19 @@ type Config struct {
 	EmployeeID string
 }
 
+// envFiles returns the list of .env paths to try, in priority order.
+var envFiles = func() []string {
+	paths := []string{".env"}
+	if home, err := os.UserHomeDir(); err == nil {
+		paths = append(paths, filepath.Join(home, ".config", "bamboo", ".env"))
+	}
+	return paths
+}
+
 func LoadConfig() (*Config, error) {
-	loadEnvFile(".env")
+	for _, path := range envFiles() {
+		loadEnvFile(path)
+	}
 
 	cfg := &Config{
 		APIKey:     os.Getenv("BAMBOO_API_KEY"),

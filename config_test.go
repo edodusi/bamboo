@@ -6,7 +6,13 @@ import (
 	"testing"
 )
 
+// noEnvFiles prevents tests from reading real .env files
+func noEnvFiles() {
+	envFiles = func() []string { return nil }
+}
+
 func TestLoadConfig_FromEnv(t *testing.T) {
+	noEnvFiles()
 	t.Setenv("BAMBOO_API_KEY", "test-key")
 	t.Setenv("BAMBOO_COMPANY", "test-co")
 	t.Setenv("BAMBOO_EMPLOYEE_ID", "42")
@@ -27,6 +33,7 @@ func TestLoadConfig_FromEnv(t *testing.T) {
 }
 
 func TestLoadConfig_MissingKey(t *testing.T) {
+	noEnvFiles()
 	t.Setenv("BAMBOO_API_KEY", "")
 	t.Setenv("BAMBOO_COMPANY", "test-co")
 	t.Setenv("BAMBOO_EMPLOYEE_ID", "42")
@@ -38,6 +45,7 @@ func TestLoadConfig_MissingKey(t *testing.T) {
 }
 
 func TestLoadConfig_MissingCompany(t *testing.T) {
+	noEnvFiles()
 	t.Setenv("BAMBOO_API_KEY", "test-key")
 	t.Setenv("BAMBOO_COMPANY", "")
 	t.Setenv("BAMBOO_EMPLOYEE_ID", "42")
@@ -49,6 +57,7 @@ func TestLoadConfig_MissingCompany(t *testing.T) {
 }
 
 func TestLoadConfig_MissingEmployeeID(t *testing.T) {
+	noEnvFiles()
 	t.Setenv("BAMBOO_API_KEY", "test-key")
 	t.Setenv("BAMBOO_COMPANY", "test-co")
 	t.Setenv("BAMBOO_EMPLOYEE_ID", "")
@@ -88,5 +97,27 @@ func TestLoadEnvFile_DoesNotOverrideExisting(t *testing.T) {
 
 	if got := os.Getenv("TEST_BAMBOO_EXISTING"); got != "from-env" {
 		t.Errorf("should not override: got %q, want %q", got, "from-env")
+	}
+}
+
+func TestLoadConfig_FromConfigDir(t *testing.T) {
+	dir := t.TempDir()
+	envFile := filepath.Join(dir, ".env")
+	os.WriteFile(envFile, []byte("BAMBOO_API_KEY=from-config\nBAMBOO_COMPANY=cfg-co\nBAMBOO_EMPLOYEE_ID=99\n"), 0600)
+
+	envFiles = func() []string { return []string{envFile} }
+	t.Setenv("BAMBOO_API_KEY", "")
+	t.Setenv("BAMBOO_COMPANY", "")
+	t.Setenv("BAMBOO_EMPLOYEE_ID", "")
+
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.APIKey != "from-config" {
+		t.Errorf("APIKey = %q, want %q", cfg.APIKey, "from-config")
+	}
+	if cfg.EmployeeID != "99" {
+		t.Errorf("EmployeeID = %q, want %q", cfg.EmployeeID, "99")
 	}
 }
