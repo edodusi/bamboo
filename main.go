@@ -13,6 +13,10 @@ Usage:
   bamboo in [TIME]   Clock in now or at TIME (alias: clock-in)
   bamboo out [TIME]  Clock out now or at TIME (alias: clock-out)
   bamboo st          Today's timesheet entries (alias: status)
+  bamboo week        This week's summary (alias: w)
+  bamboo last-week   Last week's summary (alias: lw)
+  bamboo month       This month's summary (alias: m)
+  bamboo last-month  Last month's summary (alias: lm)
 
   TIME formats: 9am, 9:00am, 9 am, 9:00 am, 9:00, 17:30
 
@@ -138,12 +142,117 @@ func run(args []string) int {
 		}
 		fmt.Printf("Total today: %s\n", formatDuration(totalWorked))
 
+	case "week", "w":
+		start, end := weekRange(time.Now(), 0)
+		return showRange(client, "This Week", start, end)
+
+	case "last-week", "lw":
+		start, end := weekRange(time.Now(), -1)
+		return showRange(client, "Last Week", start, end)
+
+	case "month", "m":
+		start, end := monthRange(time.Now(), 0)
+		return showRange(client, time.Now().Format("January 2006"), start, end)
+
+	case "last-month", "lm":
+		prev := time.Now().AddDate(0, -1, 0)
+		start, end := monthRange(prev, 0)
+		return showRange(client, prev.Format("January 2006"), start, end)
+
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", args[1])
 		fmt.Println(usage)
 		return 1
 	}
 
+	return 0
+}
+
+func weekRange(now time.Time, offset int) (string, string) {
+	weekday := int(now.Weekday())
+	if weekday == 0 {
+		weekday = 7
+	}
+	monday := now.AddDate(0, 0, -(weekday-1)+(offset*7))
+	friday := monday.AddDate(0, 0, 4)
+	return monday.Format("2006-01-02"), friday.Format("2006-01-02")
+}
+
+func monthRange(ref time.Time, _ int) (string, string) {
+	start := time.Date(ref.Year(), ref.Month(), 1, 0, 0, 0, 0, ref.Location())
+	end := start.AddDate(0, 1, -1)
+	return start.Format("2006-01-02"), end.Format("2006-01-02")
+}
+
+func showRange(client *Client, label, start, end string) int {
+	emp, err := client.GetEmployee()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %s\n", err)
+		return 1
+	}
+
+	fmt.Printf("%s\n", emp.DisplayName)
+	fmt.Printf("%s — %s", emp.JobTitle, emp.Department)
+	if emp.Location != "" {
+		fmt.Printf(" (%s)", emp.Location)
+	}
+	fmt.Println()
+	fmt.Printf("\n%s (%s → %s)\n\n", label, start, end)
+
+	entries, err := client.StatusRange(start, end)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %s\n", err)
+		return 1
+	}
+
+	if len(entries) == 0 {
+		fmt.Println("No entries.")
+		return 0
+	}
+
+	// Group by date
+	days := make(map[string][]TimesheetEntry)
+	var dayOrder []string
+	for _, e := range entries {
+		date := e.Date
+		if date == "" {
+			// Extract date from Start if Date is empty
+			t := parseTime(e.Start)
+			if !t.IsZero() {
+				date = t.Local().Format("2006-01-02")
+			}
+		}
+		if _, ok := days[date]; !ok {
+			dayOrder = append(dayOrder, date)
+		}
+		days[date] = append(days[date], e)
+	}
+
+	var grandTotal time.Duration
+
+	for _, date := range dayOrder {
+		dayEntries := days[date]
+		var dayTotal time.Duration
+
+		t, _ := time.Parse("2006-01-02", date)
+		dayLabel := t.Format("Mon Jan 2")
+
+		for _, e := range dayEntries {
+			start := parseTime(e.Start)
+			if e.End == "" {
+				elapsed := time.Since(start).Truncate(time.Minute)
+				dayTotal += elapsed
+			} else {
+				end := parseTime(e.End)
+				dayTotal += end.Sub(start)
+			}
+		}
+
+		grandTotal += dayTotal
+		fmt.Printf("  %-12s  %s\n", dayLabel, formatDuration(dayTotal))
+	}
+
+	fmt.Printf("\n  %-12s  %s\n", "Total", formatDuration(grandTotal))
 	return 0
 }
 

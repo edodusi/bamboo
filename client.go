@@ -155,6 +155,25 @@ func apiError(action string, statusCode int, raw []byte) error {
 	return fmt.Errorf("%s failed (HTTP %d): %s", action, statusCode, string(raw))
 }
 
+func (c *Client) StatusRange(start, end string) ([]TimesheetEntry, error) {
+	path := fmt.Sprintf("/time_tracking/timesheet_entries?employeeIds=%s&start=%s&end=%s",
+		c.Config.EmployeeID, start, end)
+
+	body, status, err := c.doRequest("GET", path)
+	if err != nil {
+		return nil, err
+	}
+	if status >= 400 {
+		return nil, apiError("status check", status, body)
+	}
+
+	var entries []TimesheetEntry
+	if err := json.Unmarshal(body, &entries); err != nil {
+		return nil, fmt.Errorf("parsing response: %w", err)
+	}
+	return entries, nil
+}
+
 // ianaTimezone returns the IANA timezone name (e.g. "Europe/Rome").
 // Falls back to UTC offset if the name can't be determined.
 func ianaTimezone() string {
