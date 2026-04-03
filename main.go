@@ -13,10 +13,10 @@ Usage:
   bamboo in [TIME]   Clock in now or at TIME (alias: clock-in)
   bamboo out [TIME]  Clock out now or at TIME (alias: clock-out)
   bamboo st          Today's timesheet entries (alias: status)
-  bamboo week        This week's summary (alias: w)
-  bamboo last-week   Last week's summary (alias: lw)
-  bamboo month       This month's summary (alias: m)
-  bamboo last-month  Last month's summary (alias: lm)
+  bamboo w           This week's summary (alias: week)
+  bamboo lw          Last week's summary (alias: last-week)
+  bamboo m           This month's summary (alias: month)
+  bamboo lm          Last month's summary (alias: last-month)
 
   TIME formats: 9am, 9:00am, 9 am, 9:00 am, 9:00, 17:30
 
