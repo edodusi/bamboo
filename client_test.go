@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func testClient(handler http.HandlerFunc) (*Client, *httptest.Server) {
@@ -73,6 +74,57 @@ func TestClockOut_Success(t *testing.T) {
 	}
 }
 
+func TestGetEmployee_Success(t *testing.T) {
+	client, srv := testClient(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "GET" {
+			t.Errorf("method = %s, want GET", r.Method)
+		}
+		if !strings.Contains(r.URL.Path, "/employees/42") {
+			t.Errorf("path = %s, want .../employees/42", r.URL.Path)
+		}
+		fields := r.URL.Query().Get("fields")
+		if !strings.Contains(fields, "displayName") {
+			t.Errorf("fields = %s, want displayName included", fields)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(Employee{
+			DisplayName: "Edoardo Dusi",
+			JobTitle:    "DevRel Manager",
+			Department:  "Engineering",
+			Location:    "Remote",
+		})
+	})
+	defer srv.Close()
+
+	emp, err := client.GetEmployee()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if emp.DisplayName != "Edoardo Dusi" {
+		t.Errorf("DisplayName = %q, want %q", emp.DisplayName, "Edoardo Dusi")
+	}
+	if emp.JobTitle != "DevRel Manager" {
+		t.Errorf("JobTitle = %q, want %q", emp.JobTitle, "DevRel Manager")
+	}
+}
+
+func TestGetEmployee_Error(t *testing.T) {
+	client, srv := testClient(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		w.Write([]byte(`{"error":"unauthorized"}`))
+	})
+	defer srv.Close()
+
+	_, err := client.GetEmployee()
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "401") {
+		t.Errorf("error should contain status code: %v", err)
+	}
+}
+
 func TestStatus_Success(t *testing.T) {
 	entries := []TimesheetEntry{
 		{ID: 1, EmployeeID: 42, Date: "2026-04-03", Start: "09:00", End: "12:30"},
@@ -126,6 +178,38 @@ func TestStatus_Empty(t *testing.T) {
 	}
 }
 
+func TestParseTime_RFC3339(t *testing.T) {
+	got := parseTime("2026-04-03T09:15:00+02:00")
+	if got.Hour() != 9 || got.Minute() != 15 {
+		t.Errorf("parseTime RFC3339 = %v, want 09:15", got)
+	}
+}
+
+func TestParseTime_Short(t *testing.T) {
+	got := parseTime("14:30")
+	if got.Hour() != 14 || got.Minute() != 30 {
+		t.Errorf("parseTime short = %v, want 14:30", got)
+	}
+}
+
+func TestFormatDuration(t *testing.T) {
+	tests := []struct {
+		d    time.Duration
+		want string
+	}{
+		{3*time.Hour + 30*time.Minute, "3h30m"},
+		{45 * time.Minute, "45m"},
+		{0, "0m"},
+		{8 * time.Hour, "8h00m"},
+	}
+	for _, tt := range tests {
+		got := formatDuration(tt.d)
+		if got != tt.want {
+			t.Errorf("formatDuration(%v) = %q, want %q", tt.d, got, tt.want)
+		}
+	}
+}
+
 func TestRun_NoArgs(t *testing.T) {
 	code := run([]string{"bamboo"})
 	if code != 1 {
@@ -134,6 +218,7 @@ func TestRun_NoArgs(t *testing.T) {
 }
 
 func TestRun_UnknownCommand(t *testing.T) {
+	noEnvFiles()
 	t.Setenv("BAMBOO_API_KEY", "k")
 	t.Setenv("BAMBOO_COMPANY", "c")
 	t.Setenv("BAMBOO_EMPLOYEE_ID", "1")

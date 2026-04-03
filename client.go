@@ -14,6 +14,13 @@ type Client struct {
 	HTTP    *http.Client
 }
 
+type Employee struct {
+	DisplayName string `json:"displayName"`
+	JobTitle    string `json:"jobTitle"`
+	Department  string `json:"department"`
+	Location    string `json:"location"`
+}
+
 type TimesheetEntry struct {
 	ID         int    `json:"id"`
 	EmployeeID int    `json:"employeeId"`
@@ -56,6 +63,23 @@ func (c *Client) doRequest(method, path string) ([]byte, int, error) {
 	}
 
 	return body, resp.StatusCode, nil
+}
+
+func (c *Client) GetEmployee() (*Employee, error) {
+	path := fmt.Sprintf("/employees/%s?fields=displayName,jobTitle,department,location", c.Config.EmployeeID)
+	body, status, err := c.doRequest("GET", path)
+	if err != nil {
+		return nil, err
+	}
+	if status >= 400 {
+		return nil, fmt.Errorf("get employee failed (HTTP %d): %s", status, string(body))
+	}
+
+	var emp Employee
+	if err := json.Unmarshal(body, &emp); err != nil {
+		return nil, fmt.Errorf("parsing employee: %w", err)
+	}
+	return &emp, nil
 }
 
 func (c *Client) ClockIn() error {
