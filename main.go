@@ -45,6 +45,15 @@ func run(args []string) int {
 			return 1
 		}
 		if err := client.ClockIn(at); err != nil {
+			if strings.Contains(err.Error(), "CLOCKED_IN") {
+				since := clockedInSince(client)
+				if since != "" {
+					fmt.Printf("Already clocked in since %s.\n", since)
+				} else {
+					fmt.Println("Already clocked in.")
+				}
+				return 1
+			}
 			fmt.Fprintf(os.Stderr, "error: %s\n", err)
 			return 1
 		}
@@ -61,6 +70,10 @@ func run(args []string) int {
 			return 1
 		}
 		if err := client.ClockOut(at); err != nil {
+			if strings.Contains(err.Error(), "CLOCKED_OUT") {
+				fmt.Println("Already clocked out.")
+				return 1
+			}
 			fmt.Fprintf(os.Stderr, "error: %s\n", err)
 			return 1
 		}
@@ -132,6 +145,19 @@ func run(args []string) int {
 	}
 
 	return 0
+}
+
+func clockedInSince(client *Client) string {
+	entries, err := client.Status()
+	if err != nil {
+		return ""
+	}
+	for i := len(entries) - 1; i >= 0; i-- {
+		if entries[i].End == "" {
+			return formatTime(parseTime(entries[i].Start))
+		}
+	}
+	return ""
 }
 
 // parseTimeArg parses optional time arguments like ["9am"], ["9:00", "am"], ["17:30"].
