@@ -8,9 +8,9 @@ import (
 const usage = `bamboo - BambooHR time tracking CLI
 
 Usage:
-  bamboo in   Clock in
-  bamboo out  Clock out
-  bamboo st   Show today's timesheet entries
+  bamboo in          Clock in  (alias: clock-in)
+  bamboo out         Clock out (alias: clock-out)
+  bamboo st          Today's timesheet entries (alias: status)
 
 Configuration:
   Set these environment variables (or use a .env file):
@@ -34,14 +34,14 @@ func run(args []string) int {
 	client := NewClient(cfg)
 
 	switch args[1] {
-	case "in":
+	case "in", "clock-in":
 		if err := client.ClockIn(); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %s\n", err)
 			return 1
 		}
 		fmt.Println("Clocked in.")
 
-	case "out":
+	case "out", "clock-out":
 		if err := client.ClockOut(); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %s\n", err)
 			return 1
