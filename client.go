@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"strings"
 	"time"
 )
 
@@ -103,7 +105,7 @@ func (c *Client) ClockIn(at *time.Time) error {
 		payload = map[string]string{
 			"date":     at.Format("2006-01-02"),
 			"start":    at.Format("15:04"),
-			"timezone": at.Location().String(),
+			"timezone": ianaTimezone(),
 		}
 	}
 
@@ -125,7 +127,7 @@ func (c *Client) ClockOut(at *time.Time) error {
 		payload = map[string]string{
 			"date":     at.Format("2006-01-02"),
 			"end":      at.Format("15:04"),
-			"timezone": at.Location().String(),
+			"timezone": ianaTimezone(),
 		}
 	}
 
@@ -137,6 +139,29 @@ func (c *Client) ClockOut(at *time.Time) error {
 		return fmt.Errorf("clock out failed (HTTP %d): %s", status, string(body))
 	}
 	return nil
+}
+
+// ianaTimezone returns the IANA timezone name (e.g. "Europe/Rome").
+// Falls back to UTC offset if the name can't be determined.
+func ianaTimezone() string {
+	zone := time.Now().Location().String()
+	if zone != "Local" {
+		return zone
+	}
+	// On macOS/Linux, /etc/localtime is a symlink to the zoneinfo file
+	if target, err := os.Readlink("/etc/localtime"); err == nil {
+		// e.g. /var/db/timezone/zoneinfo/Europe/Rome -> Europe/Rome
+		if idx := strings.Index(target, "zoneinfo/"); idx != -1 {
+			return target[idx+len("zoneinfo/"):]
+		}
+	}
+	// Check TZ env var
+	if tz := os.Getenv("TZ"); tz != "" {
+		return tz
+	}
+	// Last resort: UTC offset
+	_, offset := time.Now().Zone()
+	return time.FixedZone("", offset).String()
 }
 
 func (c *Client) Status() ([]TimesheetEntry, error) {
