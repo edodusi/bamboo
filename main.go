@@ -3,15 +3,18 @@ package main
 import (
 	"fmt"
 	"os"
+	"strings"
 	"time"
 )
 
 const usage = `bamboo - BambooHR time tracking CLI
 
 Usage:
-  bamboo in          Clock in  (alias: clock-in)
-  bamboo out         Clock out (alias: clock-out)
+  bamboo in [TIME]   Clock in now or at TIME (alias: clock-in)
+  bamboo out [TIME]  Clock out now or at TIME (alias: clock-out)
   bamboo st          Today's timesheet entries (alias: status)
+
+  TIME formats: 9am, 9:00am, 9 am, 9:00 am, 9:00, 17:30
 
 Configuration:
   Set these environment variables (or use a .env file):
@@ -36,18 +39,36 @@ func run(args []string) int {
 
 	switch args[1] {
 	case "in", "clock-in":
-		if err := client.ClockIn(); err != nil {
+		at, err := parseTimeArg(args[2:])
+		if err != nil {
 			fmt.Fprintf(os.Stderr, "error: %s\n", err)
 			return 1
 		}
-		fmt.Println("Clocked in.")
+		if err := client.ClockIn(at); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %s\n", err)
+			return 1
+		}
+		if at != nil {
+			fmt.Printf("Clocked in at %s.\n", at.Format("15:04"))
+		} else {
+			fmt.Println("Clocked in.")
+		}
 
 	case "out", "clock-out":
-		if err := client.ClockOut(); err != nil {
+		at, err := parseTimeArg(args[2:])
+		if err != nil {
 			fmt.Fprintf(os.Stderr, "error: %s\n", err)
 			return 1
 		}
-		fmt.Println("Clocked out.")
+		if err := client.ClockOut(at); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %s\n", err)
+			return 1
+		}
+		if at != nil {
+			fmt.Printf("Clocked out at %s.\n", at.Format("15:04"))
+		} else {
+			fmt.Println("Clocked out.")
+		}
 
 	case "st", "status":
 		emp, err := client.GetEmployee()
@@ -111,6 +132,34 @@ func run(args []string) int {
 	}
 
 	return 0
+}
+
+// parseTimeArg parses optional time arguments like ["9am"], ["9:00", "am"], ["17:30"].
+// Returns nil if no args provided.
+func parseTimeArg(args []string) (*time.Time, error) {
+	if len(args) == 0 {
+		return nil, nil
+	}
+
+	raw := strings.ToLower(strings.Join(args, ""))
+	raw = strings.ReplaceAll(raw, " ", "")
+
+	layouts := []string{
+		"3:04pm",  // 9:00am
+		"3:04 pm", // shouldn't hit after space removal, but safe
+		"3pm",     // 9am
+		"15:04",   // 17:30
+	}
+
+	for _, layout := range layouts {
+		if t, err := time.Parse(layout, raw); err == nil {
+			now := time.Now()
+			result := time.Date(now.Year(), now.Month(), now.Day(), t.Hour(), t.Minute(), 0, 0, now.Location())
+			return &result, nil
+		}
+	}
+
+	return nil, fmt.Errorf("could not parse time %q (try: 9am, 9:00am, 9:30 am, 17:30)", strings.Join(args, " "))
 }
 
 func parseTime(s string) time.Time {

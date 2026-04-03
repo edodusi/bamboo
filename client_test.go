@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -39,7 +40,34 @@ func TestClockIn_Success(t *testing.T) {
 	})
 	defer srv.Close()
 
-	if err := client.ClockIn(); err != nil {
+	if err := client.ClockIn(nil); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestClockIn_WithTime(t *testing.T) {
+	client, srv := testClient(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		var payload map[string]string
+		json.Unmarshal(body, &payload)
+
+		if payload["start"] != "09:00" {
+			t.Errorf("start = %q, want %q", payload["start"], "09:00")
+		}
+		if payload["date"] == "" {
+			t.Error("date should be set")
+		}
+		if r.Header.Get("Content-Type") != "application/json" {
+			t.Errorf("Content-Type = %q, want application/json", r.Header.Get("Content-Type"))
+		}
+
+		w.WriteHeader(http.StatusOK)
+	})
+	defer srv.Close()
+
+	now := time.Now()
+	at := time.Date(now.Year(), now.Month(), now.Day(), 9, 0, 0, 0, now.Location())
+	if err := client.ClockIn(&at); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -51,7 +79,7 @@ func TestClockIn_Error(t *testing.T) {
 	})
 	defer srv.Close()
 
-	err := client.ClockIn()
+	err := client.ClockIn(nil)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -69,7 +97,28 @@ func TestClockOut_Success(t *testing.T) {
 	})
 	defer srv.Close()
 
-	if err := client.ClockOut(); err != nil {
+	if err := client.ClockOut(nil); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestClockOut_WithTime(t *testing.T) {
+	client, srv := testClient(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		var payload map[string]string
+		json.Unmarshal(body, &payload)
+
+		if payload["end"] != "17:30" {
+			t.Errorf("end = %q, want %q", payload["end"], "17:30")
+		}
+
+		w.WriteHeader(http.StatusOK)
+	})
+	defer srv.Close()
+
+	now := time.Now()
+	at := time.Date(now.Year(), now.Month(), now.Day(), 17, 30, 0, 0, now.Location())
+	if err := client.ClockOut(&at); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -207,6 +256,58 @@ func TestFormatDuration(t *testing.T) {
 		if got != tt.want {
 			t.Errorf("formatDuration(%v) = %q, want %q", tt.d, got, tt.want)
 		}
+	}
+}
+
+func TestParseTimeArg(t *testing.T) {
+	tests := []struct {
+		args    []string
+		wantH   int
+		wantM   int
+		wantNil bool
+	}{
+		{nil, 0, 0, true},
+		{[]string{}, 0, 0, true},
+		{[]string{"9am"}, 9, 0, false},
+		{[]string{"9:00am"}, 9, 0, false},
+		{[]string{"9:30am"}, 9, 30, false},
+		{[]string{"9", "am"}, 9, 0, false},
+		{[]string{"9:00", "am"}, 9, 0, false},
+		{[]string{"5pm"}, 17, 0, false},
+		{[]string{"5:30pm"}, 17, 30, false},
+		{[]string{"5:30", "pm"}, 17, 30, false},
+		{[]string{"17:30"}, 17, 30, false},
+		{[]string{"9:00"}, 9, 0, false},
+		{[]string{"12pm"}, 12, 0, false},
+		{[]string{"12am"}, 0, 0, false},
+	}
+
+	for _, tt := range tests {
+		got, err := parseTimeArg(tt.args)
+		if err != nil {
+			t.Errorf("parseTimeArg(%v) error: %v", tt.args, err)
+			continue
+		}
+		if tt.wantNil {
+			if got != nil {
+				t.Errorf("parseTimeArg(%v) = %v, want nil", tt.args, got)
+			}
+			continue
+		}
+		if got == nil {
+			t.Errorf("parseTimeArg(%v) = nil, want %d:%02d", tt.args, tt.wantH, tt.wantM)
+			continue
+		}
+		if got.Hour() != tt.wantH || got.Minute() != tt.wantM {
+			t.Errorf("parseTimeArg(%v) = %d:%02d, want %d:%02d", tt.args, got.Hour(), got.Minute(), tt.wantH, tt.wantM)
+		}
+	}
+}
+
+func TestParseTimeArg_Invalid(t *testing.T) {
+	_, err := parseTimeArg([]string{"banana"})
+	if err == nil {
+		t.Fatal("expected error for invalid time")
 	}
 }
 

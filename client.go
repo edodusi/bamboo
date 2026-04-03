@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -40,12 +41,24 @@ func NewClient(cfg *Config) *Client {
 	}
 }
 
-func (c *Client) doRequest(method, path string) ([]byte, int, error) {
+func (c *Client) doRequest(method, path string, payload ...any) ([]byte, int, error) {
 	url := c.BaseURL + path
 
-	req, err := http.NewRequest(method, url, nil)
+	var reqBody io.Reader
+	if len(payload) > 0 && payload[0] != nil {
+		b, err := json.Marshal(payload[0])
+		if err != nil {
+			return nil, 0, fmt.Errorf("marshaling body: %w", err)
+		}
+		reqBody = bytes.NewReader(b)
+	}
+
+	req, err := http.NewRequest(method, url, reqBody)
 	if err != nil {
 		return nil, 0, fmt.Errorf("creating request: %w", err)
+	}
+	if reqBody != nil {
+		req.Header.Set("Content-Type", "application/json")
 	}
 
 	req.SetBasicAuth(c.Config.APIKey, "x")
@@ -82,9 +95,19 @@ func (c *Client) GetEmployee() (*Employee, error) {
 	return &emp, nil
 }
 
-func (c *Client) ClockIn() error {
+func (c *Client) ClockIn(at *time.Time) error {
 	path := fmt.Sprintf("/time_tracking/employees/%s/clock_in", c.Config.EmployeeID)
-	body, status, err := c.doRequest("POST", path)
+
+	var payload any
+	if at != nil {
+		payload = map[string]string{
+			"date":     at.Format("2006-01-02"),
+			"start":    at.Format("15:04"),
+			"timezone": at.Location().String(),
+		}
+	}
+
+	body, status, err := c.doRequest("POST", path, payload)
 	if err != nil {
 		return err
 	}
@@ -94,9 +117,19 @@ func (c *Client) ClockIn() error {
 	return nil
 }
 
-func (c *Client) ClockOut() error {
+func (c *Client) ClockOut(at *time.Time) error {
 	path := fmt.Sprintf("/time_tracking/employees/%s/clock_out", c.Config.EmployeeID)
-	body, status, err := c.doRequest("POST", path)
+
+	var payload any
+	if at != nil {
+		payload = map[string]string{
+			"date":     at.Format("2006-01-02"),
+			"end":      at.Format("15:04"),
+			"timezone": at.Location().String(),
+		}
+	}
+
+	body, status, err := c.doRequest("POST", path, payload)
 	if err != nil {
 		return err
 	}
