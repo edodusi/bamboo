@@ -87,7 +87,7 @@ func (c *Client) GetEmployee() (*Employee, error) {
 		return nil, err
 	}
 	if status >= 400 {
-		return nil, fmt.Errorf("get employee failed (HTTP %d): %s", status, string(body))
+		return nil, apiError("get employee", status, body)
 	}
 
 	var emp Employee
@@ -114,7 +114,7 @@ func (c *Client) ClockIn(at *time.Time) error {
 		return err
 	}
 	if status >= 400 {
-		return fmt.Errorf("clock in failed (HTTP %d): %s", status, string(body))
+		return apiError("clock in", status, body)
 	}
 	return nil
 }
@@ -136,9 +136,23 @@ func (c *Client) ClockOut(at *time.Time) error {
 		return err
 	}
 	if status >= 400 {
-		return fmt.Errorf("clock out failed (HTTP %d): %s", status, string(body))
+		return apiError("clock out", status, body)
 	}
 	return nil
+}
+
+// apiError extracts a human-friendly message from BambooHR error responses.
+// Falls back to the raw body if parsing fails.
+func apiError(action string, statusCode int, raw []byte) error {
+	var parsed struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(raw, &parsed); err == nil && parsed.Error.Message != "" {
+		return fmt.Errorf("%s failed: %s", action, parsed.Error.Message)
+	}
+	return fmt.Errorf("%s failed (HTTP %d): %s", action, statusCode, string(raw))
 }
 
 // ianaTimezone returns the IANA timezone name (e.g. "Europe/Rome").
@@ -174,7 +188,7 @@ func (c *Client) Status() ([]TimesheetEntry, error) {
 		return nil, err
 	}
 	if status >= 400 {
-		return nil, fmt.Errorf("status check failed (HTTP %d): %s", status, string(body))
+		return nil, apiError("status check", status, body)
 	}
 
 	var entries []TimesheetEntry

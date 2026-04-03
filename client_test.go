@@ -75,7 +75,7 @@ func TestClockIn_WithTime(t *testing.T) {
 func TestClockIn_Error(t *testing.T) {
 	client, srv := testClient(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
-		w.Write([]byte(`{"error":"not allowed"}`))
+		w.Write([]byte(`{"error":{"code":"FORBIDDEN","message":"not allowed"}}`))
 	})
 	defer srv.Close()
 
@@ -83,8 +83,8 @@ func TestClockIn_Error(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if !strings.Contains(err.Error(), "403") {
-		t.Errorf("error should contain status code: %v", err)
+	if !strings.Contains(err.Error(), "not allowed") {
+		t.Errorf("error should contain message: %v", err)
 	}
 }
 
@@ -161,7 +161,7 @@ func TestGetEmployee_Success(t *testing.T) {
 func TestGetEmployee_Error(t *testing.T) {
 	client, srv := testClient(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
-		w.Write([]byte(`{"error":"unauthorized"}`))
+		w.Write([]byte(`{"error":{"code":"UNAUTHORIZED","message":"unauthorized"}}`))
 	})
 	defer srv.Close()
 
@@ -169,8 +169,8 @@ func TestGetEmployee_Error(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if !strings.Contains(err.Error(), "401") {
-		t.Errorf("error should contain status code: %v", err)
+	if !strings.Contains(err.Error(), "unauthorized") {
+		t.Errorf("error should contain message: %v", err)
 	}
 }
 
