@@ -35,10 +35,19 @@ cp .env.example .env
 ## Usage
 
 ```bash
-bamboo in   # Clock in
-bamboo out  # Clock out
-bamboo st   # Show today's entries
+bamboo in        # Clock in now
+bamboo in 14     # Clock in at 14:00
+bamboo in 9am    # Clock in at 9:00
+bamboo out       # Clock out now
+bamboo out 17:30 # Clock out at 17:30
+bamboo st        # Show today's entries
+bamboo w         # This week's summary
+bamboo lw        # Last week's summary
+bamboo m         # This month's summary
+bamboo lm        # Last month's summary
 ```
+
+Time formats: `9am`, `9:00am`, `9 am`, `9:00`, `14`, `17:30`
 
 ### Shell aliases
 
@@ -48,6 +57,7 @@ Add to your `~/.zshrc`:
 alias bi="bamboo in"
 alias bo="bamboo out"
 alias bs="bamboo st"
+alias bw="bamboo w"
 ```
 
 ## License
