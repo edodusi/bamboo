@@ -18,7 +18,7 @@ Usage:
   bamboo m           This month's summary (alias: month)
   bamboo lm          Last month's summary (alias: last-month)
 
-  TIME formats: 9am, 9:00am, 9 am, 9:00 am, 9:00, 17:30
+  TIME formats: 9am, 9:00am, 9 am, 9:00 am, 9:00, 14, 17:30
 
 Configuration:
   Set these environment variables (or use a .env file):
@@ -284,6 +284,7 @@ func parseTimeArg(args []string) (*time.Time, error) {
 		"3:04 pm", // shouldn't hit after space removal, but safe
 		"3pm",     // 9am
 		"15:04",   // 17:30
+		"15",      // 14, 9 (bare hour, 24h)
 	}
 
 	for _, layout := range layouts {
@@ -294,7 +295,7 @@ func parseTimeArg(args []string) (*time.Time, error) {
 		}
 	}
 
-	return nil, fmt.Errorf("could not parse time %q (try: 9am, 9:00am, 9:30 am, 17:30)", strings.Join(args, " "))
+	return nil, fmt.Errorf("could not parse time %q (try: 9am, 9:00am, 9:30 am, 14, 17:30)", strings.Join(args, " "))
 }
 
 func parseTime(s string) time.Time {
