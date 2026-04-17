@@ -45,6 +45,19 @@ bamboo w         # This week's summary
 bamboo lw        # Last week's summary
 bamboo m         # This month's summary
 bamboo lm        # Last month's summary
+bamboo team      # Direct reports — this week (alias: t)
+bamboo team lw   # Direct reports — last week (also: m, lm)
+```
+
+The `team` command fetches direct reports from BambooHR at runtime (filtered by supervisor). No extra configuration required — your API key must have visibility into their timesheets.
+
+Weekly and monthly summaries (`w`, `lw`, `m`, `lm`, `team`) annotate days with approved time-off pulled from BambooHR — Vacation, Sickness, Public Holiday, Work Travel, Nursing, etc. — so the totals are easy to reconcile against expected working days.
+
+```
+Mon Apr 6     0m       [Public Holiday (1d)]
+Thu Apr 9     9h30m    [Work Travel (1d)]
+Fri Apr 17    38m      [Nursing (4h)]
+Total         35h35m   (+2 PTO)
 ```
 
 Time formats: `9am`, `9:00am`, `9 am`, `9:00`, `14`, `17:30`

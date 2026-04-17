@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"time"
 )
@@ -17,6 +18,8 @@ Usage:
   bamboo lw          Last week's summary (alias: last-week)
   bamboo m           This month's summary (alias: month)
   bamboo lm          Last month's summary (alias: last-month)
+  bamboo team [P]    Direct reports summary for period P (alias: t)
+                     P: w (default), lw, m, lm
 
   TIME formats: 9am, 9:00am, 9 am, 9:00 am, 9:00, 14, 17:30
 
@@ -159,6 +162,18 @@ func run(args []string) int {
 		start, end := monthRange(prev, 0)
 		return showRange(client, prev.Format("January 2006"), start, end)
 
+	case "team", "t":
+		period := "w"
+		if len(args) >= 3 {
+			period = args[2]
+		}
+		label, start, end, ok := periodRange(period)
+		if !ok {
+			fmt.Fprintf(os.Stderr, "unknown period: %s (use w, lw, m, lm)\n", period)
+			return 1
+		}
+		return showTeamRange(client, label, start, end)
+
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", args[1])
 		fmt.Println(usage)
@@ -205,7 +220,22 @@ func showRange(client *Client, label, start, end string) int {
 		return 1
 	}
 
-	if len(entries) == 0 {
+	timeOff, err := client.TimeOffRequestsForEmployees([]string{client.Config.EmployeeID}, start, end)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not fetch time off: %s\n", err)
+	}
+	pto := make(map[string]string)
+	for _, r := range timeOff {
+		for date, amt := range r.Dates {
+			unit := "d"
+			if r.Amount.Unit == "hours" {
+				unit = "h"
+			}
+			pto[date] = fmt.Sprintf("%s (%s%s)", r.Type.Name, amt, unit)
+		}
+	}
+
+	if len(entries) == 0 && len(pto) == 0 {
 		fmt.Println("No entries.")
 		return 0
 	}
@@ -227,8 +257,15 @@ func showRange(client *Client, label, start, end string) int {
 		}
 		days[date] = append(days[date], e)
 	}
+	for date := range pto {
+		if _, ok := days[date]; !ok {
+			dayOrder = append(dayOrder, date)
+		}
+	}
+	sort.Strings(dayOrder)
 
 	var grandTotal time.Duration
+	ptoDays := 0
 
 	for _, date := range dayOrder {
 		dayEntries := days[date]
@@ -249,10 +286,161 @@ func showRange(client *Client, label, start, end string) int {
 		}
 
 		grandTotal += dayTotal
-		fmt.Printf("  %-12s  %s\n", dayLabel, formatDuration(dayTotal))
+		line := fmt.Sprintf("  %-12s  %s", dayLabel, formatDuration(dayTotal))
+		if ptoNote, ok := pto[date]; ok {
+			line += "  [" + ptoNote + "]"
+			ptoDays++
+		}
+		fmt.Println(line)
 	}
 
-	fmt.Printf("\n  %-12s  %s\n", "Total", formatDuration(grandTotal))
+	summary := fmt.Sprintf("\n  %-12s  %s", "Total", formatDuration(grandTotal))
+	if ptoDays > 0 {
+		summary += fmt.Sprintf("  (+%d PTO)", ptoDays)
+	}
+	fmt.Println(summary)
+	return 0
+}
+
+func periodRange(period string) (label, start, end string, ok bool) {
+	switch period {
+	case "w", "week":
+		s, e := weekRange(time.Now(), 0)
+		return "This Week", s, e, true
+	case "lw", "last-week":
+		s, e := weekRange(time.Now(), -1)
+		return "Last Week", s, e, true
+	case "m", "month":
+		s, e := monthRange(time.Now(), 0)
+		return time.Now().Format("January 2006"), s, e, true
+	case "lm", "last-month":
+		prev := time.Now().AddDate(0, -1, 0)
+		s, e := monthRange(prev, 0)
+		return prev.Format("January 2006"), s, e, true
+	}
+	return "", "", "", false
+}
+
+func showTeamRange(client *Client, label, start, end string) int {
+	me, err := client.GetEmployee()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %s\n", err)
+		return 1
+	}
+
+	reports, err := client.DirectReports(me.DisplayName)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %s\n", err)
+		return 1
+	}
+	if len(reports) == 0 {
+		fmt.Printf("No direct reports found for %s.\n", me.DisplayName)
+		return 0
+	}
+
+	ids := make([]string, 0, len(reports))
+	for _, r := range reports {
+		ids = append(ids, r.ID)
+	}
+
+	entries, err := client.StatusRangeForEmployees(ids, start, end)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %s\n", err)
+		return 1
+	}
+
+	timeOff, err := client.TimeOffRequestsForEmployees(ids, start, end)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not fetch time off: %s\n", err)
+	}
+
+	byEmp := make(map[int][]TimesheetEntry)
+	for _, e := range entries {
+		byEmp[e.EmployeeID] = append(byEmp[e.EmployeeID], e)
+	}
+
+	// ptoByEmp[empID][date] = "Type (amount unit)"
+	ptoByEmp := make(map[string]map[string]string)
+	for _, r := range timeOff {
+		if _, ok := ptoByEmp[r.EmployeeID]; !ok {
+			ptoByEmp[r.EmployeeID] = make(map[string]string)
+		}
+		for date, amt := range r.Dates {
+			unit := "d"
+			if r.Amount.Unit == "hours" {
+				unit = "h"
+			}
+			ptoByEmp[r.EmployeeID][date] = fmt.Sprintf("%s (%s%s)", r.Type.Name, amt, unit)
+		}
+	}
+
+	fmt.Printf("Team — %s (%s → %s)\n", label, start, end)
+
+	for _, r := range reports {
+		fmt.Println()
+		fmt.Printf("%s — %s\n", r.DisplayName, r.JobTitle)
+
+		empID := 0
+		fmt.Sscanf(r.ID, "%d", &empID)
+		empEntries := byEmp[empID]
+		pto := ptoByEmp[r.ID]
+
+		days := make(map[string][]TimesheetEntry)
+		var dayOrder []string
+		for _, e := range empEntries {
+			date := e.Date
+			if date == "" {
+				t := parseTime(e.Start)
+				if !t.IsZero() {
+					date = t.Local().Format("2006-01-02")
+				}
+			}
+			if _, ok := days[date]; !ok {
+				dayOrder = append(dayOrder, date)
+			}
+			days[date] = append(days[date], e)
+		}
+		// Include PTO-only days (no clocked entries) in the output
+		for date := range pto {
+			if _, ok := days[date]; !ok {
+				dayOrder = append(dayOrder, date)
+			}
+		}
+		sort.Strings(dayOrder)
+
+		if len(dayOrder) == 0 {
+			fmt.Println("  No entries.")
+			continue
+		}
+
+		var total time.Duration
+		ptoDays := 0
+		for _, date := range dayOrder {
+			var dayTotal time.Duration
+			for _, e := range days[date] {
+				s := parseTime(e.Start)
+				if e.End == "" {
+					dayTotal += time.Since(s).Truncate(time.Minute)
+				} else {
+					dayTotal += parseTime(e.End).Sub(s)
+				}
+			}
+			total += dayTotal
+			t, _ := time.Parse("2006-01-02", date)
+			label := t.Format("Mon Jan 2")
+			line := fmt.Sprintf("  %-12s  %s", label, formatDuration(dayTotal))
+			if ptoNote, ok := pto[date]; ok {
+				line += "  [" + ptoNote + "]"
+				ptoDays++
+			}
+			fmt.Println(line)
+		}
+		summary := fmt.Sprintf("  %-12s  %s", "Total", formatDuration(total))
+		if ptoDays > 0 {
+			summary += fmt.Sprintf("  (+%d PTO)", ptoDays)
+		}
+		fmt.Println(summary)
+	}
 	return 0
 }
 

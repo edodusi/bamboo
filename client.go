@@ -24,6 +24,37 @@ type Employee struct {
 	Location    string `json:"location"`
 }
 
+type DirectoryEmployee struct {
+	ID          string `json:"id"`
+	DisplayName string `json:"displayName"`
+	JobTitle    string `json:"jobTitle"`
+	Supervisor  string `json:"supervisor"`
+}
+
+type TimeOffRequest struct {
+	ID         string            `json:"id"`
+	EmployeeID string            `json:"employeeId"`
+	Start      string            `json:"start"`
+	End        string            `json:"end"`
+	Status     TimeOffStatus     `json:"status"`
+	Type       TimeOffType       `json:"type"`
+	Amount     TimeOffAmount     `json:"amount"`
+	Dates      map[string]string `json:"dates"`
+}
+
+type TimeOffStatus struct {
+	Status string `json:"status"`
+}
+
+type TimeOffType struct {
+	Name string `json:"name"`
+}
+
+type TimeOffAmount struct {
+	Unit   string `json:"unit"`
+	Amount string `json:"amount"`
+}
+
 type TimesheetEntry struct {
 	ID         int    `json:"id"`
 	EmployeeID int    `json:"employeeId"`
@@ -195,6 +226,84 @@ func ianaTimezone() string {
 	// Last resort: UTC offset
 	_, offset := time.Now().Zone()
 	return time.FixedZone("", offset).String()
+}
+
+// DirectReports returns employees whose `supervisor` field matches supervisorName.
+// The directory stores supervisor as "FirstName LastName", matching Employee.DisplayName.
+func (c *Client) DirectReports(supervisorName string) ([]DirectoryEmployee, error) {
+	body, status, err := c.doRequest("GET", "/employees/directory")
+	if err != nil {
+		return nil, err
+	}
+	if status >= 400 {
+		return nil, apiError("directory", status, body)
+	}
+
+	var resp struct {
+		Employees []DirectoryEmployee `json:"employees"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, fmt.Errorf("parsing directory: %w", err)
+	}
+
+	var reports []DirectoryEmployee
+	for _, e := range resp.Employees {
+		if e.Supervisor == supervisorName {
+			reports = append(reports, e)
+		}
+	}
+	return reports, nil
+}
+
+// TimeOffRequestsForEmployees returns approved time-off requests overlapping [start, end] for the given employees.
+// Note: the API filters by request-level start/end overlap, so requests spanning the window are included.
+func (c *Client) TimeOffRequestsForEmployees(employeeIDs []string, start, end string) ([]TimeOffRequest, error) {
+	path := fmt.Sprintf("/time_off/requests/?start=%s&end=%s&status=approved", start, end)
+
+	body, status, err := c.doRequest("GET", path)
+	if err != nil {
+		return nil, err
+	}
+	if status >= 400 {
+		return nil, apiError("time off requests", status, body)
+	}
+
+	var all []TimeOffRequest
+	if err := json.Unmarshal(body, &all); err != nil {
+		return nil, fmt.Errorf("parsing time off: %w", err)
+	}
+
+	wanted := make(map[string]bool, len(employeeIDs))
+	for _, id := range employeeIDs {
+		wanted[id] = true
+	}
+	var filtered []TimeOffRequest
+	for _, r := range all {
+		if wanted[r.EmployeeID] {
+			filtered = append(filtered, r)
+		}
+	}
+	return filtered, nil
+}
+
+// StatusRangeForEmployees queries timesheet entries for multiple employees in a single call.
+func (c *Client) StatusRangeForEmployees(employeeIDs []string, start, end string) ([]TimesheetEntry, error) {
+	ids := strings.Join(employeeIDs, ",")
+	path := fmt.Sprintf("/time_tracking/timesheet_entries?employeeIds=%s&start=%s&end=%s", ids, start, end)
+
+	body, status, err := c.doRequest("GET", path)
+	if err != nil {
+		return nil, err
+	}
+	if status >= 400 {
+		return nil, apiError("team status", status, body)
+	}
+
+	var entries []TimesheetEntry
+	if err := json.Unmarshal(body, &entries); err != nil {
+		return nil, fmt.Errorf("parsing response: %w", err)
+	}
+	return entries, nil
 }
 
 func (c *Client) Status() ([]TimesheetEntry, error) {
