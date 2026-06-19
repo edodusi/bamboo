@@ -40,6 +40,8 @@ bamboo in 14     # Clock in at 14:00
 bamboo in 9am    # Clock in at 9:00
 bamboo out       # Clock out now
 bamboo out 17:30 # Clock out at 17:30
+bamboo log 2026-06-18 9:00 14:00            # Record a worked interval on a past date
+bamboo log 2026-06-18 9am 2pm "half day"    # ...with an optional note
 bamboo st        # Show today's entries
 bamboo w         # This week's summary
 bamboo lw        # Last week's summary
@@ -48,6 +50,21 @@ bamboo lm        # Last month's summary
 bamboo team      # Direct reports — this week (alias: t)
 bamboo team lw   # Direct reports — last week (also: m, lm)
 ```
+
+### Logging a past day
+
+`bamboo in` / `bamboo out` always apply to **today**. To fill in a day you missed
+— for example a partial-PTO day where BambooHR's auto-fill leaves the worked hours
+blank — use `log` with an explicit date:
+
+```bash
+bamboo log DATE START END [NOTE]
+bamboo log 2026-06-18 9:00 14:00
+```
+
+This posts a single complete entry (date + start + end) to BambooHR in one atomic
+call, so it can't leave a dangling open clock-in. The date must be `YYYY-MM-DD`, and
+`end` must be after `start`.
 
 The `team` command fetches direct reports from BambooHR at runtime (filtered by supervisor). No extra configuration required — your API key must have visibility into their timesheets.
 
