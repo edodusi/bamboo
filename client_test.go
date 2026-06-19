@@ -227,6 +227,150 @@ func TestStatus_Empty(t *testing.T) {
 	}
 }
 
+func TestLogEntry_Success(t *testing.T) {
+	client, srv := testClient(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			t.Errorf("method = %s, want POST", r.Method)
+		}
+		if !strings.HasSuffix(r.URL.Path, "/time_tracking/clock_entries/store") {
+			t.Errorf("path = %s, want .../clock_entries/store", r.URL.Path)
+		}
+
+		var payload struct {
+			Entries []struct {
+				EmployeeID int    `json:"employeeId"`
+				Date       string `json:"date"`
+				Start      string `json:"start"`
+				End        string `json:"end"`
+				Timezone   string `json:"timezone"`
+				Note       string `json:"note"`
+			} `json:"entries"`
+		}
+		body, _ := io.ReadAll(r.Body)
+		if err := json.Unmarshal(body, &payload); err != nil {
+			t.Fatalf("unmarshal payload: %v", err)
+		}
+		if len(payload.Entries) != 1 {
+			t.Fatalf("got %d entries, want 1", len(payload.Entries))
+		}
+		e := payload.Entries[0]
+		if e.EmployeeID != 42 {
+			t.Errorf("employeeId = %d, want 42", e.EmployeeID)
+		}
+		if e.Date != "2026-06-18" {
+			t.Errorf("date = %q, want 2026-06-18", e.Date)
+		}
+		if e.Start != "09:00" || e.End != "14:00" {
+			t.Errorf("interval = %q-%q, want 09:00-14:00", e.Start, e.End)
+		}
+		if e.Timezone == "" {
+			t.Error("timezone should be set")
+		}
+		if e.Note != "health appt" {
+			t.Errorf("note = %q, want %q", e.Note, "health appt")
+		}
+
+		w.WriteHeader(http.StatusOK)
+	})
+	defer srv.Close()
+
+	if err := client.LogEntry("2026-06-18", "09:00", "14:00", "health appt"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestLogEntry_OmitsEmptyNote(t *testing.T) {
+	client, srv := testClient(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		if strings.Contains(string(body), "note") {
+			t.Errorf("payload should omit note when empty: %s", body)
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+	defer srv.Close()
+
+	if err := client.LogEntry("2026-06-18", "09:00", "14:00", ""); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestLogEntry_Error(t *testing.T) {
+	client, srv := testClient(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(`{"error":{"code":"BAD","message":"overlapping entry"}}`))
+	})
+	defer srv.Close()
+
+	err := client.LogEntry("2026-06-18", "09:00", "14:00", "")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "overlapping entry") {
+		t.Errorf("error should contain message: %v", err)
+	}
+}
+
+func TestLogEntry_InvalidEmployeeID(t *testing.T) {
+	client, srv := testClient(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("should not reach server with invalid employee ID")
+		w.WriteHeader(http.StatusOK)
+	})
+	defer srv.Close()
+	client.Config.EmployeeID = "not-a-number"
+
+	if err := client.LogEntry("2026-06-18", "09:00", "14:00", ""); err == nil {
+		t.Fatal("expected error for non-numeric employee ID")
+	}
+}
+
+func TestParseClockTime(t *testing.T) {
+	tests := []struct {
+		in   string
+		want string
+	}{
+		{"9am", "09:00"},
+		{"9:00am", "09:00"},
+		{"9:30am", "09:30"},
+		{"5pm", "17:00"},
+		{"5:30pm", "17:30"},
+		{"17:30", "17:30"},
+		{"14", "14:00"},
+		{"9:00", "09:00"},
+		{"12pm", "12:00"},
+		{"12am", "00:00"},
+		{" 9:00 am ", "09:00"},
+	}
+	for _, tt := range tests {
+		got, err := parseClockTime(tt.in)
+		if err != nil {
+			t.Errorf("parseClockTime(%q) error: %v", tt.in, err)
+			continue
+		}
+		if got != tt.want {
+			t.Errorf("parseClockTime(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}
+
+func TestParseClockTime_Invalid(t *testing.T) {
+	if _, err := parseClockTime("banana"); err == nil {
+		t.Fatal("expected error for invalid time")
+	}
+}
+
+func TestParseDateArg(t *testing.T) {
+	got, err := parseDateArg("2026-06-18")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "2026-06-18" {
+		t.Errorf("parseDateArg = %q, want 2026-06-18", got)
+	}
+	if _, err := parseDateArg("06/18/2026"); err == nil {
+		t.Fatal("expected error for wrong date format")
+	}
+}
+
 func TestParseTime_RFC3339(t *testing.T) {
 	got := parseTime("2026-04-03T09:15:00+02:00")
 	if got.Hour() != 9 || got.Minute() != 15 {

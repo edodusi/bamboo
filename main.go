@@ -13,6 +13,9 @@ const usage = `bamboo - BambooHR time tracking CLI
 Usage:
   bamboo in [TIME]   Clock in now or at TIME (alias: clock-in)
   bamboo out [TIME]  Clock out now or at TIME (alias: clock-out)
+  bamboo log DATE START END [NOTE]
+                     Record a complete worked interval on a specific date
+                     (e.g. bamboo log 2026-06-18 9:00 14:00)
   bamboo st          Today's timesheet entries (alias: status)
   bamboo w           This week's summary (alias: week)
   bamboo lw          Last week's summary (alias: last-week)
@@ -89,6 +92,38 @@ func run(args []string) int {
 		} else {
 			fmt.Println("Clocked out.")
 		}
+
+	case "log":
+		if len(args) < 5 {
+			fmt.Fprintln(os.Stderr, "usage: bamboo log DATE START END [NOTE]")
+			fmt.Fprintln(os.Stderr, "example: bamboo log 2026-06-18 9:00 14:00")
+			return 1
+		}
+		date, err := parseDateArg(args[2])
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %s\n", err)
+			return 1
+		}
+		start, err := parseClockTime(args[3])
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: start %s\n", err)
+			return 1
+		}
+		end, err := parseClockTime(args[4])
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: end %s\n", err)
+			return 1
+		}
+		if end <= start {
+			fmt.Fprintf(os.Stderr, "error: end (%s) must be after start (%s)\n", end, start)
+			return 1
+		}
+		note := strings.Join(args[5:], " ")
+		if err := client.LogEntry(date, start, end, note); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %s\n", err)
+			return 1
+		}
+		fmt.Printf("Logged %s–%s on %s.\n", start, end, date)
 
 	case "st", "status":
 		emp, err := client.GetEmployee()
@@ -484,6 +519,33 @@ func parseTimeArg(args []string) (*time.Time, error) {
 	}
 
 	return nil, fmt.Errorf("could not parse time %q (try: 9am, 9:00am, 9:30 am, 14, 17:30)", strings.Join(args, " "))
+}
+
+// parseDateArg validates a YYYY-MM-DD date and returns it normalized.
+func parseDateArg(s string) (string, error) {
+	t, err := time.Parse("2006-01-02", strings.TrimSpace(s))
+	if err != nil {
+		return "", fmt.Errorf("could not parse date %q (expected YYYY-MM-DD, e.g. 2026-06-18)", s)
+	}
+	return t.Format("2006-01-02"), nil
+}
+
+// parseClockTime parses a single flexible time token (9am, 9:00am, 14, 17:30)
+// and returns it as a 24h "15:04" string for the BambooHR API.
+func parseClockTime(s string) (string, error) {
+	raw := strings.ReplaceAll(strings.ToLower(s), " ", "")
+	layouts := []string{
+		"3:04pm", // 9:00am
+		"3pm",    // 9am
+		"15:04",  // 17:30
+		"15",     // 14 (bare hour, 24h)
+	}
+	for _, layout := range layouts {
+		if t, err := time.Parse(layout, raw); err == nil {
+			return t.Format("15:04"), nil
+		}
+	}
+	return "", fmt.Errorf("could not parse time %q (try: 9am, 9:00am, 14, 17:30)", s)
 }
 
 func parseTime(s string) time.Time {

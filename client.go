@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -168,6 +169,38 @@ func (c *Client) ClockOut(at *time.Time) error {
 	}
 	if status >= 400 {
 		return apiError("clock out", status, body)
+	}
+	return nil
+}
+
+// LogEntry records a complete worked interval (start..end) on a specific date.
+// Uses the bulk clock-entries store endpoint, which creates a closed entry in a
+// single atomic call — the right tool for backfilling a past day. date is
+// "2006-01-02"; start/end are "15:04" (24h).
+func (c *Client) LogEntry(date, start, end, note string) error {
+	empID, err := strconv.Atoi(strings.TrimSpace(c.Config.EmployeeID))
+	if err != nil {
+		return fmt.Errorf("invalid employee ID %q: %w", c.Config.EmployeeID, err)
+	}
+
+	entry := map[string]any{
+		"employeeId": empID,
+		"date":       date,
+		"start":      start,
+		"end":        end,
+		"timezone":   ianaTimezone(),
+	}
+	if note != "" {
+		entry["note"] = note
+	}
+	payload := map[string]any{"entries": []any{entry}}
+
+	body, status, err := c.doRequest("POST", "/time_tracking/clock_entries/store", payload)
+	if err != nil {
+		return err
+	}
+	if status >= 400 {
+		return apiError("log entry", status, body)
 	}
 	return nil
 }
